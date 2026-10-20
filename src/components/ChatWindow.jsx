@@ -47,30 +47,44 @@ export default function ChatWindow({ repo }) {
     }
   }
 
-  async function pollAnswer(jobId) {
-    const job = await getChatJob(jobId);
-
-    if (job.status === "pending") {
+  async function pollAnswer(jobId, attempt = 0) {
+  let job;
+  try {
+    job = await getChatJob(jobId);
+  } catch (err) {
+    if (attempt >= 20) {
+      setSending(false);
       setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === "assistant" && last.streaming) {
-          return [...prev.slice(0, -1), { ...last, content: job.answer || "" }];
-        }
-        return prev;
+        const withoutPlaceholder = prev[prev.length - 1]?.streaming ? prev.slice(0, -1) : prev;
+        return [...withoutPlaceholder, { role: "assistant", content: `Something went wrong: ${err.message}` }];
       });
-      setTimeout(() => pollAnswer(jobId), 1000);
       return;
     }
-
-    setSending(false);
-    setMessages((prev) => {
-      const withoutPlaceholder = prev[prev.length - 1]?.streaming ? prev.slice(0, -1) : prev;
-      if (job.status !== "completed") {
-        return [...withoutPlaceholder, { role: "assistant", content: `Something went wrong: ${job.error}` }];
-      }
-      return [...withoutPlaceholder, { role: "assistant", content: job.answer, sources: job.sources }];
-    });
+    setTimeout(() => pollAnswer(jobId, attempt + 1), 1000);
+    return;
   }
+
+  if (job.status === "pending") {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.role === "assistant" && last.streaming) {
+        return [...prev.slice(0, -1), { ...last, content: job.answer || "" }];
+      }
+      return prev;
+    });
+    setTimeout(() => pollAnswer(jobId, 0), 1000);
+    return;
+  }
+
+  setSending(false);
+  setMessages((prev) => {
+    const withoutPlaceholder = prev[prev.length - 1]?.streaming ? prev.slice(0, -1) : prev;
+    if (job.status !== "completed") {
+      return [...withoutPlaceholder, { role: "assistant", content: `Something went wrong: ${job.error || "unknown error"}` }];
+    }
+    return [...withoutPlaceholder, { role: "assistant", content: job.answer, sources: job.sources }];
+  });
+}
 
   async function copyMessage(index, content) {
     await navigator.clipboard.writeText(content);
